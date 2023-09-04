@@ -4,7 +4,7 @@ WORKDIR /app
 
 COPY . .
 
-RUN go build -o wasteworks main.go
+RUN go build -o wasteworks ./...
 
 FROM alpine:latest
 

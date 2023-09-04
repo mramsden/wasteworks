@@ -1,12 +1,16 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"time"
 )
+
+var defaultWriteTimeout = 30 * time.Second
 
 func main() {
 	addr, ok := os.LookupEnv("HTTP_ADDR")
@@ -17,8 +21,9 @@ func main() {
 	slog.Info("starting HTTP server", "addr", addr)
 
 	s := http.Server{
-		Addr:    addr,
-		Handler: http.HandlerFunc(calendarHandler),
+		Addr:         addr,
+		Handler:      http.HandlerFunc(calendarHandler),
+		WriteTimeout: defaultWriteTimeout,
 	}
 	s.ListenAndServe()
 }
@@ -26,15 +31,24 @@ func main() {
 const cookieURL = "https://recyclingservices.bromley.gov.uk/waste/6053242"
 const icsURL = "https://recyclingservices.bromley.gov.uk/waste/6053242/calendar.ics"
 
-var proxyTransport = http.DefaultTransport
+var proxyTransport = retryableTransport{
+	transport:     http.DefaultTransport,
+	maxRetryDelay: 5 * time.Second,
+}
 
 func calendarHandler(w http.ResponseWriter, r *http.Request) {
+	start := time.Now()
+
 	if r.URL.Path != "/" {
 		w.WriteHeader(http.StatusNotFound)
 		return
 	}
 
-	pReq, err := http.NewRequest("GET", cookieURL, nil)
+	slog.Info("handling request for calendar", "User-Agent", r.Header.Get("User-Agent"))
+
+	ctx := r.Context()
+
+	pReq, err := http.NewRequestWithContext(ctx, "GET", cookieURL, nil)
 	if err != nil {
 		http.Error(w, "error creating proxy request", http.StatusInternalServerError)
 		return
@@ -47,6 +61,7 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 
 	pResp, err := proxyTransport.RoundTrip(pReq)
 	if err != nil {
+		slog.Warn("failed starting wasteworks session", "error", err)
 		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
 		return
 	}
@@ -66,7 +81,10 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	pReq, err = http.NewRequest("GET", icsURL, nil)
+	ctx, cancel := context.WithTimeout(ctx, defaultWriteTimeout-time.Now().Sub(start))
+	defer cancel()
+
+	pReq, err = http.NewRequestWithContext(ctx, "GET", icsURL, nil)
 	if err != nil {
 		http.Error(w, "error creating proxy request", http.StatusInternalServerError)
 		return
@@ -79,14 +97,18 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	pReq.AddCookie(sessionCookie)
 
-	slog.Info("sending calendar request", "request", pReq)
-
 	pResp, err = proxyTransport.RoundTrip(pReq)
 	if err != nil {
+		slog.Warn("failed to fetch calendar", "error", err)
 		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
 		return
 	}
 	defer pResp.Body.Close()
+	if pResp.StatusCode != http.StatusOK {
+		slog.Warn("failed to fetch calendar, unexpected status code from wasteworks", "url", pReq.URL.String(), "status", pResp.StatusCode)
+		http.Error(w, "error retrieving calendar", http.StatusInternalServerError)
+		return
+	}
 
 	for name, values := range pResp.Header {
 		for _, value := range values {
