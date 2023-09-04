@@ -1,0 +1,19 @@
+version: '3.8'
+services:
+  wasteworks:
+    container_name: wasteworks
+    build: .
+    restart: unless-stopped
+    ports:
+      - "8080"
+    environment:
+      - HTTP_ADDR=0.0.0.0:8080
+  tunnel:
+    image: cloudflare/cloudflared
+    restart: unless-stopped
+    command: tunnel run
+    environment:
+      - TUNNEL_TOKEN=${CLOUDFLARED_TUNNEL_TOKEN}
+
+networks:
+  wasteworks:

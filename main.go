@@ -5,11 +5,19 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 )
 
 func main() {
+	addr, ok := os.LookupEnv("HTTP_ADDR")
+	if !ok {
+		addr = "127.0.0.1:8080"
+	}
+
+	slog.Info("starting HTTP server", "addr", addr)
+
 	s := http.Server{
-		Addr:    "127.0.0.1:8080",
+		Addr:    addr,
 		Handler: http.HandlerFunc(calendarHandler),
 	}
 	s.ListenAndServe()
