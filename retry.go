@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"io"
-	"log/slog"
 	"math"
 	"net/http"
 	"slices"
@@ -34,14 +33,14 @@ func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 			if req.Body != nil {
 				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
-			slog.Info("retrying failed request",
+			logger.Info("retrying failed request",
 				"url", req.URL.String(),
 				"retries", retries,
 				"duration", time.Now().Sub(start))
 			resp, err = t.transport.RoundTrip(req)
 			retries++
 		case <-req.Context().Done():
-			slog.Info("request timed out",
+			logger.Info("request timed out",
 				"url", req.URL.String(),
 				"retries", retries,
 				"duration", time.Now().Sub(start))
@@ -49,7 +48,7 @@ func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 	}
 
-	slog.Info("request successful",
+	logger.Info("request successful",
 		"url", req.URL.String(),
 		"retries", retries,
 		"duration", time.Now().Sub(start))

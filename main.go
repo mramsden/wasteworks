@@ -11,6 +11,11 @@ import (
 )
 
 var defaultWriteTimeout = 30 * time.Second
+var logger *slog.Logger
+
+func init() {
+	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+}
 
 func main() {
 	addr, ok := os.LookupEnv("HTTP_ADDR")
@@ -18,7 +23,7 @@ func main() {
 		addr = "127.0.0.1:8080"
 	}
 
-	slog.Info("starting HTTP server", "addr", addr)
+	logger.Info("starting HTTP server", "addr", addr)
 
 	s := http.Server{
 		Addr:         addr,
@@ -44,7 +49,7 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("handling request for calendar", "User-Agent", r.Header.Get("User-Agent"))
+	logger.Info("handling request for calendar", "user-agent", r.Header.Get("User-Agent"))
 
 	ctx := r.Context()
 
@@ -61,7 +66,7 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 
 	pResp, err := proxyTransport.RoundTrip(pReq)
 	if err != nil {
-		slog.Warn("failed starting wasteworks session", "error", err)
+		logger.Warn("failed starting wasteworks session", "error", err)
 		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
 		return
 	}
@@ -99,13 +104,13 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 
 	pResp, err = proxyTransport.RoundTrip(pReq)
 	if err != nil {
-		slog.Warn("failed to fetch calendar", "error", err)
+		logger.Warn("failed to fetch calendar", "error", err)
 		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
 		return
 	}
 	defer pResp.Body.Close()
 	if pResp.StatusCode != http.StatusOK {
-		slog.Warn("failed to fetch calendar, unexpected status code from wasteworks", "url", pReq.URL.String(), "status", pResp.StatusCode)
+		logger.Warn("failed to fetch calendar, unexpected status code from wasteworks", "url", pReq.URL.String(), "status", pResp.StatusCode)
 		http.Error(w, "error retrieving calendar", http.StatusInternalServerError)
 		return
 	}
