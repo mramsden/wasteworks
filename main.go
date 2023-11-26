@@ -2,11 +2,12 @@ package main
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -42,8 +43,6 @@ var proxyTransport = retryableTransport{
 }
 
 func calendarHandler(w http.ResponseWriter, r *http.Request) {
-	start := time.Now()
-
 	if r.URL.Path != "/" {
 		w.WriteHeader(http.StatusNotFound)
 		return
@@ -51,70 +50,27 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 
 	logger.Info("handling request for calendar", "user-agent", r.Header.Get("User-Agent"))
 
-	ctx := r.Context()
-
-	pReq, err := http.NewRequestWithContext(ctx, "GET", cookieURL, nil)
-	if err != nil {
-		http.Error(w, "error creating proxy request", http.StatusInternalServerError)
-		return
-	}
-
-	pReq.Header = http.Header{
-		"Accept":     []string{"*/*"},
-		"User-Agent": []string{"wasteworks/1.0 (admin@bitsden.com)"},
-	}
-
-	pResp, err := proxyTransport.RoundTrip(pReq)
-	if err != nil {
-		logger.Warn("failed starting wasteworks session", "error", err)
-		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
-		return
-	}
-	pResp.Body.Close()
-
-	headers := ""
-	for name, values := range pResp.Header {
-		for _, value := range values {
-			headers += fmt.Sprintf("%s: %s\n", name, value)
-		}
-	}
-
-	var sessionCookie *http.Cookie
-	for _, cookie := range pResp.Cookies() {
-		if cookie.Name == "fixmystreet_app_session" {
-			sessionCookie = cookie
-		}
-	}
-
-	ctx, cancel := context.WithTimeout(ctx, defaultWriteTimeout-time.Now().Sub(start))
+	ctx, cancel := context.WithDeadline(r.Context(), time.Now().Add(30*time.Second))
 	defer cancel()
 
-	pReq, err = http.NewRequestWithContext(ctx, "GET", icsURL, nil)
-	if err != nil {
-		http.Error(w, "error creating proxy request", http.StatusInternalServerError)
-		return
+	var pResp *http.Response
+	var err error
+	wc := wasteworksClient{}
+	for pResp == nil && !errors.Is(err, context.DeadlineExceeded) {
+		pResp, err = wc.FetchCalendar(ctx)
+		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+			logger.Debug("failed fetching calendar", slog.String("err", err.Error()))
+			time.Sleep(time.Second)
+		}
 	}
-
-	pReq.Header = http.Header{
-		"Accept":     []string{"*/*"},
-		"Referer":    []string{cookieURL},
-		"User-Agent": []string{"wasteworks/1.0 (admin@bitsden.com)"},
-	}
-	pReq.AddCookie(sessionCookie)
-
-	pResp, err = proxyTransport.RoundTrip(pReq)
+	logger.Info("completed wasteworks query", slog.Int("session-requests", wc.sessionRequests), slog.Int("calendar-requests", wc.calendarRequests))
 	if err != nil {
-		logger.Warn("failed to fetch calendar", "error", err)
-		http.Error(w, "error sending proxy request", http.StatusInternalServerError)
+		http.Error(w, "error retrieving data from wasteworks", http.StatusInternalServerError)
 		return
 	}
 	defer pResp.Body.Close()
-	if pResp.StatusCode != http.StatusOK {
-		logger.Warn("failed to fetch calendar, unexpected status code from wasteworks", "url", pReq.URL.String(), "status", pResp.StatusCode)
-		http.Error(w, "error retrieving calendar", http.StatusInternalServerError)
-		return
-	}
 
+	// Copy headers from the calendar response to our actual request response
 	for name, values := range pResp.Header {
 		for _, value := range values {
 			w.Header().Add(name, value)
@@ -123,4 +79,81 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.WriteHeader(pResp.StatusCode)
 	io.Copy(w, pResp.Body)
+}
+
+type wasteworksClient struct {
+	sessionCookie    *http.Cookie
+	sessionRequests  int
+	calendarRequests int
+}
+
+// StartSession will create a new session with the fixmystreet web
+// application. It saves the session cookie ready for other
+// requests
+func (c *wasteworksClient) StartSession(ctx context.Context) error {
+	c.sessionRequests += 1
+	req, err := http.NewRequestWithContext(ctx, "GET", cookieURL, nil)
+	if err != nil {
+		return err
+	}
+
+	req.Header.Set("Accept", "*/*")
+	req.Header.Set("User-Agent", "wasteworks/1.0 (admin@bitsden.com)")
+
+	resp, err := proxyTransport.RoundTrip(req)
+	if err != nil {
+		return err
+	}
+	resp.Body.Close()
+
+	for _, cookie := range resp.Cookies() {
+		if cookie.Name == "fixmystreet_app_session" {
+			c.sessionCookie = cookie
+			return nil
+		}
+	}
+
+	return errors.New("unable to find 'fixmystreet_app_session' cookie")
+}
+
+// FetchCalendar will fetch the appropriate iCal URL from fixmystreet
+func (c *wasteworksClient) FetchCalendar(ctx context.Context) (*http.Response, error) {
+	c.calendarRequests += 1
+
+	var err error
+	for c.sessionCookie == nil && !errors.Is(err, context.DeadlineExceeded) {
+		err = c.StartSession(ctx)
+		if err != nil {
+			logger.Debug("failed starting session", slog.String("err", err.Error()))
+		}
+	}
+
+	logger.Debug("fixmystreet session started")
+
+	req, err := http.NewRequestWithContext(ctx, "GET", icsURL, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	req.Header.Add("Accept", "*/*")
+	req.Header.Add("Referer", cookieURL)
+	req.Header.Add("User-Agent", "wasteworks/1.0 (admin@bitsden.com)")
+	req.AddCookie(c.sessionCookie)
+
+	resp, err := proxyTransport.RoundTrip(req)
+	if err != nil {
+		logger.Warn("failed to fetch calendar", slog.String("error", err.Error()))
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusOK {
+		logger.Warn("failed to fetch calendar, unexpected status code from wasteworks", slog.String("url", req.URL.String()), slog.Int("status", resp.StatusCode))
+		return nil, err
+	}
+
+	contentType := resp.Header.Get("content-type")
+	if !strings.HasPrefix(contentType, "text/calendar") {
+		return nil, errors.New("missing expected content-type text/calendar")
+	}
+
+	return resp, nil
 }

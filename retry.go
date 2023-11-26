@@ -33,25 +33,25 @@ func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 			if req.Body != nil {
 				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
-			logger.Info("retrying failed request",
+			logger.Debug("retrying failed request",
 				"url", req.URL.String(),
 				"retries", retries,
-				"duration", time.Now().Sub(start))
+				"duration", time.Since(start))
 			resp, err = t.transport.RoundTrip(req)
 			retries++
 		case <-req.Context().Done():
-			logger.Info("request timed out",
+			logger.Debug("request timed out",
 				"url", req.URL.String(),
 				"retries", retries,
-				"duration", time.Now().Sub(start))
+				"duration", time.Since(start))
 			return nil, errors.New("request timed out")
 		}
 	}
 
-	logger.Info("request successful",
+	logger.Debug("request successful",
 		"url", req.URL.String(),
 		"retries", retries,
-		"duration", time.Now().Sub(start))
+		"duration", time.Since(start))
 
 	return resp, err
 }
