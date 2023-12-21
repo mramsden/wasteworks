@@ -1,11 +1,13 @@
-package main
+package wasteworks
 
 import (
 	"bytes"
 	"errors"
 	"io"
+	"log/slog"
 	"math"
 	"net/http"
+	"os"
 	"slices"
 	"time"
 )
@@ -13,6 +15,15 @@ import (
 type retryableTransport struct {
 	transport     http.RoundTripper
 	maxRetryDelay time.Duration
+	logger *slog.Logger
+}
+
+func newRetryableTransport() (retryableTransport) {
+	return retryableTransport{
+		transport: http.DefaultTransport,
+		maxRetryDelay: 5 * time.Second,
+		logger: slog.New(slog.NewTextHandler(os.Stdout, nil)),
+	}
 }
 
 func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -33,14 +44,14 @@ func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 			if req.Body != nil {
 				req.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 			}
-			logger.Debug("retrying failed request",
+			t.logger.Debug("retrying failed request",
 				"url", req.URL.String(),
 				"retries", retries,
 				"duration", time.Since(start))
 			resp, err = t.transport.RoundTrip(req)
 			retries++
 		case <-req.Context().Done():
-			logger.Debug("request timed out",
+			t.logger.Debug("request timed out",
 				"url", req.URL.String(),
 				"retries", retries,
 				"duration", time.Since(start))
@@ -48,7 +59,7 @@ func (t *retryableTransport) RoundTrip(req *http.Request) (*http.Response, error
 		}
 	}
 
-	logger.Debug("request successful",
+	t.logger.Debug("request successful",
 		"url", req.URL.String(),
 		"retries", retries,
 		"duration", time.Since(start))
