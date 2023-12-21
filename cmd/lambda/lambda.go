@@ -19,7 +19,7 @@ type handlerResponse struct {
 }
 
 func handler(ctx context.Context) (handlerResponse, error) {
-	var headers http.Header
+	headers := http.Header{}
 	resp, err := wasteworks.FetchCalendarWithContext(ctx)
 	if err != nil {
 		headers.Add("Content-Type", "text/plain")
