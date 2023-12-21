@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -47,17 +46,7 @@ func calendarHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithDeadline(r.Context(), time.Now().Add(30*time.Second))
 	defer cancel()
 
-	var pResp *http.Response
-	var err error
-	wc := wasteworks.NewClient()
-	for pResp == nil && !errors.Is(err, context.DeadlineExceeded) {
-		pResp, err = wc.FetchCalendar(ctx)
-		if err != nil && !errors.Is(err, context.DeadlineExceeded) {
-			logger.Debug("failed fetching calendar", slog.String("err", err.Error()))
-			time.Sleep(time.Second)
-		}
-	}
-	logger.Info("completed wasteworks query", slog.Int("session-requests", wc.SessionRequests), slog.Int("calendar-requests", wc.CalendarRequests))
+	pResp, err := wasteworks.FetchCalendarWithContext(ctx)
 	if err != nil {
 		http.Error(w, "error retrieving data from wasteworks", http.StatusInternalServerError)
 		return
