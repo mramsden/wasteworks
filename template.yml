@@ -10,6 +10,7 @@ Resources:
       Handler: bootstrap
       Runtime: provided.al2023
       Timeout: 10
+      ReservedConcurrentExecutions: 1
       Architectures:
         - x86_64
       FunctionUrlConfig:
