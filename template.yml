@@ -34,6 +34,9 @@ Resources:
           - - "/aws/lambda/"
             - Ref: WasteworksApplication
       RetentionInDays: 30
+      Tags:
+        - Key: awsApplication
+          Value: arn:aws:resource-groups:eu-west-2:770389572600:group/Wasteworks/0av8nux3086tr5ldsv33wzme45
   WasteworksDistribution:
     Type: AWS::CloudFront::Distribution
     DependsOn:
@@ -69,6 +72,9 @@ Resources:
             Ref: WasteworksApplicationRequestPolicy
           TargetOriginId: WasteworksApplication
           ViewerProtocolPolicy: https-only
+      Tags:
+        - Key: awsApplication
+          Value: arn:aws:resource-groups:eu-west-2:770389572600:group/Wasteworks/0av8nux3086tr5ldsv33wzme45
   WasteworksApplicationCachePolicy:
     Type: AWS::CloudFront::CachePolicy
     Properties:
