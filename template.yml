@@ -2,6 +2,13 @@ AWSTemplateFormatVersion: 2010-09-09
 Transform: AWS::Serverless-2016-10-31
 
 Resources:
+  AppRegistryApplicationStackAssociation:
+    Type: AWS::ServiceCatalogAppRegistry::ResourceAssociation
+    Properties:
+      Application: arn:aws:servicecatalog:eu-west-2:770389572600:/applications/0av8nux3086tr5ldsv33wzme45
+      Resource:
+        Ref: AWS::StackId
+      ResourceType: CFN_STACK
   WasteworksApplication:
     Type: AWS::Serverless::Function
     Properties:
@@ -16,6 +23,8 @@ Resources:
       FunctionUrlConfig:
         AuthType: NONE
         InvokeMode: BUFFERED
+      Tags:
+        awsApplication: arn:aws:resource-groups:eu-west-2:770389572600:group/Wasteworks/0av8nux3086tr5ldsv33wzme45
   WasteworksApplicationLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
@@ -25,8 +34,77 @@ Resources:
           - - "/aws/lambda/"
             - Ref: WasteworksApplication
       RetentionInDays: 30
-
+  WasteworksDistribution:
+    Type: AWS::CloudFront::Distribution
+    DependsOn:
+      - WasteworksApplication
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Aliases:
+          - wasteworks.bitsden.app
+        Origins:
+          - Id: WasteworksApplication
+            DomainName:
+              Fn::Select:
+                - 2
+                - Fn::Split:
+                    - "/"
+                    - Fn::GetAtt: WasteworksApplicationUrl.FunctionUrl
+            CustomOriginConfig:
+              HTTPSPort: 443
+              OriginProtocolPolicy: https-only
+        ViewerCertificate:
+          AcmCertificateArn: arn:aws:acm:us-east-1:770389572600:certificate/609edb1a-6d36-41a4-bc33-fae34567b1c0
+          MinimumProtocolVersion: TLSv1.2_2021
+          SslSupportMethod: sni-only
+        DefaultCacheBehavior:
+          AllowedMethods:
+            - GET
+            - HEAD
+            - OPTIONS
+          CachePolicyId:
+            Ref: WasteworksApplicationCachePolicy
+          OriginRequestPolicyId:
+            Ref: WasteworksApplicationRequestPolicy
+          TargetOriginId: WasteworksApplication
+          ViewerProtocolPolicy: https-only
+  WasteworksApplicationCachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: WasteworksApplication
+        DefaultTTL: 0
+        MaxTTL: 0
+        MinTTL: 0
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingBrotli: false
+          EnableAcceptEncodingGzip: false
+          CookiesConfig:
+            CookieBehavior: none
+          HeadersConfig:
+            HeaderBehavior: none
+          QueryStringsConfig:
+            QueryStringBehavior: none
+  WasteworksApplicationRequestPolicy:
+    Type: AWS::CloudFront::OriginRequestPolicy
+    Properties:
+      OriginRequestPolicyConfig:
+        Name: WasteworksApplication
+        CookiesConfig:
+          CookieBehavior: all
+        HeadersConfig:
+          HeaderBehavior: allExcept
+          Headers:
+            - Host
+        QueryStringsConfig:
+          QueryStringBehavior: all
+          
 Outputs:
+  WasteworksApplicationDistributionEndpoint:
+    Description: Wasteworks application cloudfront URL endpoint
+    Value:
+      Fn::GetAtt: WasteworksDistribution.DomainName
   WasteworksApplicationUrlEndpoint:
     Description: Wasteworks application function URL endpoint
     Value:

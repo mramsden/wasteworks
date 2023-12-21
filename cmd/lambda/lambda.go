@@ -19,7 +19,9 @@ type handlerResponse struct {
 }
 
 func handler(ctx context.Context) (handlerResponse, error) {
-	headers := http.Header{}
+	headers := http.Header{
+		"Cache-Control": {"max-age=0"},
+	}
 	resp, err := wasteworks.FetchCalendarWithContext(ctx)
 	if err != nil {
 		headers.Add("Content-Type", "text/plain")
