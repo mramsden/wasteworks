@@ -1,0 +1,31 @@
+AWSTemplateFormatVersion: 2010-09-09
+Transform: AWS::Serverless-2016-10-31
+
+Resources:
+  WasteworksApplication:
+    Type: AWS::Serverless::Function
+    Properties:
+      PackageType: Zip
+      CodeUri: ./out/function.zip
+      Handler: bootstrap
+      Runtime: provided.al2023
+      Architectures:
+        - x86_64
+      FunctionUrlConfig:
+        AuthType: NONE
+        InvokeMode: BUFFERED
+  WasteworksApplicationLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName:
+        Fn::Join:
+          - ""
+          - - "/aws/lambda/"
+            - Ref: WasteworksApplication
+      RetentionInDays: 30
+
+Outputs:
+  WasteworksApplicationUrlEndpoint:
+    Description: Wasteworks application function URL endpoint
+    Value:
+      Fn::GetAtt: WasteworksApplicationUrl.FunctionUrl
