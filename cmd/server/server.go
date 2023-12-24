@@ -8,6 +8,7 @@ import (
 	"os"
 	"time"
 
+	log "bitsden.com/wasteworks/internal/logger"
 	"bitsden.com/wasteworks/internal/wasteworks"
 )
 
@@ -16,7 +17,7 @@ const defaultWriteTimeout = 30 * time.Second
 var logger *slog.Logger
 
 func init() {
-	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger = log.Logger.With(slog.String("module", "wasteworks/server"))
 }
 
 func main() {

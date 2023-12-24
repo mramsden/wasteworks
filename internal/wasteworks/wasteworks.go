@@ -5,14 +5,15 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"os"
 	"time"
+
+	log "bitsden.com/wasteworks/internal/logger"
 )
 
 var logger *slog.Logger
 
 func init() {
-	logger = slog.New(slog.NewTextHandler(os.Stdout, nil))
+	logger = log.Logger.With(slog.String("module", "wasteworks"))
 }
 
 func FetchCalendarWithContext(ctx context.Context) (resp *http.Response, err error) {
